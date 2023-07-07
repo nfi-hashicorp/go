@@ -11,7 +11,9 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
+	"net/url"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -35,7 +37,11 @@ func newRemote(url string) *remoteCache {
 // the corresponding output bytes.
 // GetBytes should only be used for data that can be expected to fit in memory.
 func (c *remoteCache) GetBytes(id cache.ActionID) ([]byte, cache.Entry, error) {
-	url := fmt.Sprintf("%s/%s", c.base, hex.EncodeToString([]byte(id[:])))
+	url, err := url.JoinPath(c.base, hex.EncodeToString([]byte(id[:])))
+	// TODO: probably could do better
+	if err != nil {
+		return nil, cache.Entry{}, fmt.Errorf("GET %q: %w", url, err)
+	}
 	resp, err := c.c.Get(url)
 	if err != nil {
 		return nil, cache.Entry{}, fmt.Errorf("GET %q: %w", url, err)
@@ -71,7 +77,11 @@ func (c *remoteCache) GetBytes(id cache.ActionID) ([]byte, cache.Entry, error) {
 }
 
 func (c *remoteCache) PutNoVerify(id cache.ActionID, file io.ReadSeeker) (cache.OutputID, int64, error) {
-	url := fmt.Sprintf("%s/%s", c.base, hex.EncodeToString([]byte(id[:])))
+	url, err := url.JoinPath(c.base, hex.EncodeToString([]byte(id[:])))
+	// TODO: probably could do better
+	if err != nil {
+		return cache.OutputID{}, 0, fmt.Errorf("POST %q: %w", url, err)
+	}
 	// TODO: content type?
 	// TODO: maybe this should be PUT
 	resp, err := c.c.Post(url, "", file)
@@ -83,9 +93,9 @@ func (c *remoteCache) PutNoVerify(id cache.ActionID, file io.ReadSeeker) (cache.
 		// TODO: limit
 		body, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
-			return cache.OutputID{}, 0, fmt.Errorf("POST: %d: reading body : %s", resp.StatusCode, err)
+			return cache.OutputID{}, 0, fmt.Errorf("POST: %d: reading body: %s", resp.StatusCode, err)
 		}
-		return cache.OutputID{}, 0, fmt.Errorf("POST: %d: body : %q", resp.StatusCode, body)
+		return cache.OutputID{}, 0, fmt.Errorf("POST: %d: body: %q", resp.StatusCode, body)
 	}
 	// TODO: real cache.OutputID, real size
 	return cache.OutputID{}, 0, nil
@@ -151,5 +161,7 @@ func getCache() cacheI {
 	if cache.DebugTest {
 		fmt.Fprintf(os.Stderr, "testcache: using remote cache at: %q\n", remoteURL)
 	}
-	return newRemote(remoteURL)
+	// TODO: when the resultant URL is e.g http://localhost:2601//blah (two slashes),
+	// http.Client.Post ends up doing a GET?!?!?
+	return newRemote(strings.TrimSuffix(remoteURL, "/"))
 }
