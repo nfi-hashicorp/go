@@ -7,6 +7,7 @@
 package main
 
 import (
+	"cmd/go/internal/cacheserver"
 	"cmd/go/internal/workcmd"
 	"context"
 	"flag"
@@ -63,6 +64,7 @@ func init() {
 		tool.CmdTool,
 		version.CmdVersion,
 		vet.CmdVet,
+		cacheserver.CmdCacheserver,
 
 		help.HelpBuildConstraint,
 		help.HelpBuildmode,
