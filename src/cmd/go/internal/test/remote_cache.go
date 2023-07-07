@@ -11,6 +11,7 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
+	"os"
 	"time"
 )
 
@@ -99,7 +100,9 @@ func (c *remoteCache) Get(id cache.ActionID) (cache.Entry, error) {
 }
 
 func (c *remoteCache) ExpireAll() {
-	panic("TODO?")
+	if cache.DebugTest {
+		fmt.Fprintf(os.Stderr, "testcache: remote cache ExpireAll stubbed\n")
+	}
 }
 
 // OutputFile returns the name of the cache file storing output with the given cache.OutputID.
@@ -137,7 +140,16 @@ func (c *remoteCache) FuzzDir() string {
 
 func getCache() cacheI {
 	// TODO: Once, blah blah blah
-	// TODO: actually get this from the env, etc.
-	const remoteURL = "http://localhost:2601"
+	// TODO: better var name? document this
+	remoteURL := os.Getenv("GOTESTCACHE")
+	if remoteURL == "" {
+		if cache.DebugTest {
+			fmt.Fprintf(os.Stderr, "testcache: remote cache unset; using local filesystem cache\n")
+		}
+		return &fsCache{}
+	}
+	if cache.DebugTest {
+		fmt.Fprintf(os.Stderr, "testcache: using remote cache at: %q\n", remoteURL)
+	}
 	return newRemote(remoteURL)
 }
