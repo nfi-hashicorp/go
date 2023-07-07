@@ -1,11 +1,8 @@
-// TODO: this feels more like a go tool cacheserver, but I want to access internal/cache
-package cacheserver
+package main
 
 import (
 	"bytes"
-	"cmd/go/internal/base"
-	"cmd/go/internal/cache"
-	"context"
+	"cmd/cacheserver/internal/cache"
 	"encoding/hex"
 	"fmt"
 	"io/ioutil"
@@ -14,21 +11,9 @@ import (
 	"strings"
 )
 
-// Break init loop.
-func init() {
-	CmdCacheserver.Run = runCacheserver
-}
-
-var CmdCacheserver = &base.Command{
-	UsageLine: `go cacheserver [addr (default: ":2601")]`,
-	Short:     "runs build cache server",
-}
-
-func runCacheserver(ctx context.Context, cmd *base.Command, args []string) {
+func main() {
+	// TODO: help, flags
 	addr := ":2601"
-	if len(args) > 0 {
-		addr = args[0]
-	}
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		p := strings.TrimPrefix(r.URL.Path, "/")
 		pb, err := hex.DecodeString(p)

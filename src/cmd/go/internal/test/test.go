@@ -1119,13 +1119,6 @@ type cacheI interface {
 	ExpireAll()
 }
 
-func getCache() cacheI {
-	// TODO: Once, blah blah blah
-	// TODO: actually get this from the env, etc.
-	const remoteURL = "http://localhost:2601"
-	return newRemote(remoteURL)
-}
-
 // runCache is the cache for running a single test.
 type runCache struct {
 	disableCache bool // cache should be disabled for this run
