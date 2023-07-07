@@ -25,7 +25,6 @@ import (
 	"cmd/go/internal/cache"
 	"cmd/go/internal/cfg"
 	"cmd/go/internal/load"
-	"cmd/go/internal/lockedfile"
 	"cmd/go/internal/modload"
 	"cmd/go/internal/search"
 	"cmd/go/internal/str"
@@ -760,16 +759,7 @@ func runTest(ctx context.Context, cmd *base.Command, args []string) {
 		testKillTimeout = testTimeout + 1*time.Minute
 	}
 
-	// Read testcache expiration time, if present.
-	// (We implement go clean -testcache by writing an expiration date
-	// instead of searching out and deleting test result cache entries.)
-	if dir := cache.DefaultDir(); dir != "off" {
-		if data, _ := lockedfile.Read(filepath.Join(dir, "testexpire.txt")); len(data) > 0 && data[len(data)-1] == '\n' {
-			if t, err := strconv.ParseInt(string(data[:len(data)-1]), 10, 64); err == nil {
-				testCacheExpire = time.Unix(0, t)
-			}
-		}
-	}
+	getCache().ExpireAll()
 
 	b := work.NewBuilder("")
 	defer func() {
@@ -1122,6 +1112,20 @@ type runTestActor struct {
 	next chan<- struct{} // close next once the next test can start.
 }
 
+type cacheI interface {
+	GetBytes(cache.ActionID) ([]byte, cache.Entry, error)
+	PutNoVerify(cache.ActionID, io.ReadSeeker) (cache.OutputID, int64, error)
+	FuzzDir() string
+	ExpireAll()
+}
+
+func getCache() cacheI {
+	// TODO: Once, blah blah blah
+	// TODO: actually get this from the env, etc.
+	const remoteURL = "http://localhost:2601"
+	return newRemote(remoteURL)
+}
+
 // runCache is the cache for running a single test.
 type runCache struct {
 	disableCache bool // cache should be disabled for this run
@@ -1240,7 +1244,7 @@ func (r *runTestActor) Act(b *work.Builder, ctx context.Context, a *work.Action)
 	panicArg := "-test.paniconexit0"
 	fuzzArg := []string{}
 	if testFuzz != "" {
-		fuzzCacheDir := filepath.Join(cache.Default().FuzzDir(), a.Package.ImportPath)
+		fuzzCacheDir := filepath.Join(getCache().FuzzDir(), a.Package.ImportPath)
 		fuzzArg = []string{"-test.fuzzcachedir=" + fuzzCacheDir}
 	}
 	coverdirArg := []string{}
@@ -1471,7 +1475,7 @@ func (c *runCache) tryCacheWithID(b *work.Builder, a *work.Action, id string) bo
 		}
 	}
 
-	if cache.Default() == nil {
+	if getCache() == nil {
 		if cache.DebugTest {
 			fmt.Fprintf(os.Stderr, "testcache: GOCACHE=off\n")
 		}
@@ -1518,7 +1522,7 @@ func (c *runCache) tryCacheWithID(b *work.Builder, a *work.Action, id string) bo
 
 	// Load list of referenced environment variables and files
 	// from last run of testID, and compute hash of that content.
-	data, entry, err := cache.Default().GetBytes(testID)
+	data, entry, err := getCache().GetBytes(testID)
 	if !bytes.HasPrefix(data, testlogMagic) || data[len(data)-1] != '\n' {
 		if cache.DebugTest {
 			if err != nil {
@@ -1539,7 +1543,7 @@ func (c *runCache) tryCacheWithID(b *work.Builder, a *work.Action, id string) bo
 
 	// Parse cached result in preparation for changing run time to "(cached)".
 	// If we can't parse the cached result, don't use it.
-	data, entry, err = cache.Default().GetBytes(testAndInputKey(testID, testInputsID))
+	data, entry, err = getCache().GetBytes(testAndInputKey(testID, testInputsID))
 	if len(data) == 0 || data[len(data)-1] != '\n' {
 		if cache.DebugTest {
 			if err != nil {
@@ -1751,15 +1755,22 @@ func (c *runCache) saveOutput(a *work.Action) {
 		if cache.DebugTest {
 			fmt.Fprintf(os.Stderr, "testcache: %s: save test ID %x => input ID %x => %x\n", a.Package.ImportPath, c.id1, testInputsID, testAndInputKey(c.id1, testInputsID))
 		}
-		cache.Default().PutNoVerify(c.id1, bytes.NewReader(testlog))
-		cache.Default().PutNoVerify(testAndInputKey(c.id1, testInputsID), bytes.NewReader(a.TestOutput.Bytes()))
+		cachePut(c.id1, bytes.NewReader(testlog))
+		cachePut(testAndInputKey(c.id1, testInputsID), bytes.NewReader(a.TestOutput.Bytes()))
 	}
 	if c.id2 != (cache.ActionID{}) {
 		if cache.DebugTest {
 			fmt.Fprintf(os.Stderr, "testcache: %s: save test ID %x => input ID %x => %x\n", a.Package.ImportPath, c.id2, testInputsID, testAndInputKey(c.id2, testInputsID))
 		}
-		cache.Default().PutNoVerify(c.id2, bytes.NewReader(testlog))
-		cache.Default().PutNoVerify(testAndInputKey(c.id2, testInputsID), bytes.NewReader(a.TestOutput.Bytes()))
+		cachePut(c.id2, bytes.NewReader(testlog))
+		cachePut(testAndInputKey(c.id2, testInputsID), bytes.NewReader(a.TestOutput.Bytes()))
+	}
+}
+
+func cachePut(id cache.ActionID, file io.ReadSeeker) {
+	_, _, err := getCache().PutNoVerify(id, file)
+	if err != nil && cache.DebugTest {
+		fmt.Fprintf(os.Stderr, "testcache: %x: PutNoVerify error: %s", id, err)
 	}
 }
 
